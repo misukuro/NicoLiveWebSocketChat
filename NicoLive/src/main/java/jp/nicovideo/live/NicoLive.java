@@ -2305,13 +2305,13 @@ public class NicoLive {
 		switch (this.errorType) {
 		case Nothing:
 			return null;
-
+			
 		case NotLogin:
 			return "ログインが完了していません。";
-
+			
 		case NotFound:
 			return "指定したIDは無効です。";
-
+			
 		case Unknown:
 			return "サーバーに障害が発生しています。";
 

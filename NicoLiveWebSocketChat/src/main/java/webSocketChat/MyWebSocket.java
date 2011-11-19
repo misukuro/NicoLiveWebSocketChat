@@ -35,10 +35,9 @@ public class MyWebSocket implements WebSocket.OnTextMessage {
 	private NicoLive _live; //ニコ生の接続情報を表す
 	private NicoLiveCliant _liveCliant;
 	private UserConfig _userConfig; //ユーザ設定情報
-	
 	/** ニコニコ動画アカウント */
 	private String mail = "";
-	private String pass = "websocket";
+	private String pass = "";
 		
 	/** 
 	 * コンストラクタ
@@ -278,6 +277,13 @@ public class MyWebSocket implements WebSocket.OnTextMessage {
 	    
 	    /** ユーザ設定 */
 	    private UserConfig userConfig = null;	   
+	    
+	    /** 前回の送出時のコメント **/
+	    private String prevMessage = "";
+	    
+	    /** 前回の送出時のユーザID **/
+	    private String prevUserID = "";
+	    
 	    /**
 	     * 指定した NicoLive オブジェクトでハンドラークラスを作成します。
 	     *
@@ -300,6 +306,18 @@ public class MyWebSocket implements WebSocket.OnTextMessage {
 	    	if(!type.equals("1") && !type.equals("0") && !type.equals("3") && !type.equals("6") && !type.equals("2") && !type.equals("7")){
 	    		//System.out.println(type + ":【" + roomType.toString() + "】" + comment);
 	    	}
+	    	//送出コメントとユーザを記憶する
+	    	//公式生の転送コメントの仕様変更により、
+	    	//コマンドで判定できなくなったので、
+	    	//コメント内容とユーザIDが前回と同じであれば送出しない
+	    	if (prevMessage.equals(comment)
+	    			 && prevUserID.equals(userid) )
+	    	{
+	    		return;
+	    	}
+	    	prevMessage = comment;
+	    	prevUserID = userid;
+	    	
 	    	//コメント部屋を判別
 	    	String room = this.live.getRoomLabel();
 	    	if(!live.getOfficial()){ //ユーザ生放送
@@ -420,8 +438,7 @@ public class MyWebSocket implements WebSocket.OnTextMessage {
 	    
 	    	//JSONフォーマットに整形
 	    	output = String.format("{\"room\":\"%s\",\"number\":\"%s\",\"comment\":\"%s\",\"userid\": %s,\"type\":\"%s\",\"vpos\":\"%s\"}", room, number, comment, userid, type, prognessTime);
-	    	
-	    	
+	    		    	
 	    	//クライアントに送信する
 	    	try
 	    	{
