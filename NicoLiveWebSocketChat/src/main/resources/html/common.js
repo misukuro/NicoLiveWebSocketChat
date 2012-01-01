@@ -10,6 +10,13 @@ var configSubName = 1; //長いユーザネームを省略する
 var isOfficial = 0; //公式生放送かどうか
 var configSubComment = 1; //60文字以上のコメントを省略する
 var successConnect = 0; //websocket接続が確立できたかどうか
+var frontRoom = ""; //もっとも最前の部屋
+
+//コメント種別
+const SYSTEM = 2;
+const OWNER = 3;
+const OFFICIAL = 6;
+const BACKSTAGEPASS = 7;
 
 //WebSocketが接続された時に，「send」ボタンが有効になる
 function onOpenWebSocket(){
@@ -85,11 +92,53 @@ function dispMessage(msg){
 		*/
 		return;
 	}
+	
+	//部屋間で重複する運営コメ・BSPを表示しない
+	//1つの部屋のコメントのみ表示する
+	if(configBsp){
+		if(msg.type == SYSTEM || msg.type == OWNER ||
+				msg.type == OFFICIAL || msg.type == BACKSTAGEPASS){
+			if(frontRoom != "" && frontRoom != msg.room) return;
+			if(msg.room == "ｱﾘｰﾅ最前"){
+				frontRoom = msg.room;
+			}else if(msg.room == "ArenaA"){
+				frontRoom = msg.room;
+			}else if(msg.room == "アリーナ"){
+				frontRoom = msg.room;
+			}else if(count > 10){
+				frontRoom = msg.room;
+			}else{
+				return;
+			}
+		}
+	}
+	
+	//運営コマンドを表示しない
+	if(configHb){
+		if(msg.type == SYSTEM || msg.type == OWNER || msg.type == OFFICIAL){
+			regObj = new RegExp(/^\/([a-z0-9]+)\s+(.+)/);
+			var com = msg.comment.match(regObj);
+			if(com != null && com[0]){
+				// /permコメは本体のみ表示する
+				if(com[1] == "perm"){
+					msg.comment = com[2];
+				}else{
+					return;
+				}
+			}
+		}
+	}
+	
 	//エスケープ
 	msg.userid.user.name = unSanitizing(msg.userid.user.name);
 	msg.comment = unSanitizing(msg.comment);
 	if(msg.number == "null"){
 		msg.number = "";
+	}
+	
+	//htmlタグを表示しない
+	if(configHtml){
+		msg.comment = msg.comment.replace(/<("[^"]*"|'[^']*'|[^'">])*>/g, '');
 	}
 	
 	//テーブルにコメント情報を表示する
@@ -123,13 +172,13 @@ function dispMessage(msg){
 	if(msg.comment.length > 60 && configSubComment == 1){
 		msg.comment = msg.comment.substring(0,60) + "...";
 	}
-	if(msg.type == 2 || msg.type == 3){ //運営コメント
+	if(msg.type == SYSTEM || msg.type == OWNER){ //運営コメント
 		var span = document.createElement("span");
 		span.setAttribute("id","orange");
 		spanText = document.createTextNode(msg.comment);
 		span.appendChild(spanText);
 		cell.appendChild(span);		
-	}else if(msg.type == 6 || msg.type == 7){ //バックステージパス
+	}else if(msg.type == OFFICIAL || msg.type == BACKSTAGEPASS){ //バックステージパス
 		var span = document.createElement("span");
 		span.setAttribute("id","blue");
 		spanText = document.createTextNode(msg.comment);
@@ -195,6 +244,8 @@ function sendMessage(){
   ws.send(liveId);
   $("#liveId")[0].value = liveId;
   printMessage(liveId + "への接続を開始します");
+  //最前の部屋を初期化
+  frontRoom = "";
   //子ノードを全て削除
   while($("#messagein")[0].hasChildNodes()){
 	  $("#messagein")[0].removeChild($("#messagein")[0].lastChild);
@@ -213,7 +264,7 @@ function getLiveId(){
 	if(url==""){printMessage("番組IDを入力してください。");return null;}
 	regObj = new RegExp(/((lv|co|ch)\d+)/);
 	var liveId = url.match(regObj);
-	if(liveId[0]){
+	if(liveId != null && liveId[0]){
 		return liveId[0];
 	}
 	else
@@ -226,6 +277,11 @@ function getLiveId(){
 //指定された文字列にURLが含まれていればリンクにして返します
 function getLinkString(str){
 	var message = str.replace(/(https?:\/\/[-_.!~*'()a-zA-Z0-9;\/?:\@&=+\$,%#]+)/, '<a href="$1" target="_blank">$1</a>');
+	//URLが張られたなら、lv,co,smをリンクに置換しない
+	regObj = new RegExp(/(https?:\/\/[-_.!~*'()a-zA-Z0-9;\/?:\@&=+\$,%#]+)/);
+	var url = message.match(regObj);
+	if(url != null && url[0]) return message;
+	
 	message = message.replace(/(sm[0-9]+)/, '<a href="http://www.nicovideo.jp/watch/$1" target="_blank">$1</a>');
 	message = message.replace(/(nm[0-9]+)/, '<a href="http://www.nicovideo.jp/watch/$1" target="_blank">$1</a>');
 	message = message.replace(/(co[0-9]+)/, '<a href="http://com.nicovideo.jp/community/$1" target="_blank">$1</a>');

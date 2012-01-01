@@ -210,7 +210,7 @@ public class NicoLive {
 	// 重複したり無効なユーザーを検査し続けないようにするために使う
 	private static HashSet<Integer> gotNameList = new HashSet<Integer>();
 	
-	//rogger
+	//logger
 	final static Logger logger = Logger.getLogger("SampleLogging");
 
 	/**
@@ -1408,16 +1408,6 @@ public class NicoLive {
 	public ErrorType getErrorType() {
 		return this.errorType;
 	}
-
-	/*
-	 * ニコ生仕様変更の為、削除
-	 * 
-	 * 現在のリアルタイム来場者数を返します。
-	 * 
-	 * @return リアルタイム来場者数 public int getRealWatchCount() { updateCount();
-	 * 
-	 * return realWatchCount; }
-	 */
 
 	/**
 	 * この放送の基準時刻を、1970 年 1 月 1 日 00:00:00 GMT からの秒数で返します。

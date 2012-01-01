@@ -1,8 +1,10 @@
 package webSocketChat;
 
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.Set;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -30,10 +32,9 @@ import org.eclipse.jetty.websocket.WebSocket;
  */
 public class MyWebSocket implements WebSocket.OnTextMessage {
 	
-	public String _liveId; //接続先の番組
+	public String _liveId = null; //接続先の番組
 	private WebSocket.Connection _outbound; //WebSocketの接続先
-	private NicoLive _live; //ニコ生の接続情報を表す
-	private NicoLiveCliant _liveCliant;
+	private static Map<String, Connections> _connections = new HashMap<String, Connections>();
 	private UserConfig _userConfig; //ユーザ設定情報
 	/** ニコニコ動画アカウント */
 	private String mail = "";
@@ -44,65 +45,48 @@ public class MyWebSocket implements WebSocket.OnTextMessage {
 	 * @param request
 	 */
 	public MyWebSocket(HttpServletRequest request) {
-		//クッキーからユーザ設定情報を読み取る
 		_userConfig = new UserConfig();
-		/*
-		Cookie[] cookies = request.getCookies();
-		Cookie cookie;
-		if(cookies == null){return;}
+	}
 
-		for (int i = 0; i < cookies.length; i++) {
-			cookie = cookies[i];
-			System.out.println(cookie.getName());
-			//System.out.println(cookie.getValue());
-			if (cookie.getName().equals("html")) {
-				_userConfig.configHtml = cookie.getValue().equals("1") ? true : false;
-				//System.out.println(_userConfig.configHtml + "html");
-			}else if(cookie.getName().equals("hidden")){
-				_userConfig.configHidden = cookie.getValue().equals("1") ? true : false;
-				//System.out.println(_userConfig.configHidden + "hidden");
-			}else if(cookie.getName().equals("hb")){
-				_userConfig.configHb = cookie.getValue().equals("1") ? true : false;
-				//System.out.println(_userConfig.configHb + "hb");
-			}else if(cookie.getName().equals("bsp")){
-				_userConfig.configBsp = cookie.getValue().equals("1") ? true : false;
-				//System.out.println(_userConfig.configBsp + "bsp");
-			}
-		}
-		*/
-	}
-	/*ユーザが接続
-	public void onConnect(WebSocket.Connection outbound) {
-		_outbound = outbound;	       	
-	}
-	*/
 	@Override
 	public void onClose(int arg0, String arg1) {
 		System.out.println("closed");
-		// TODO Auto-generated method stub
-		if(_live != null){
-			_live.close();
-			_live = null;
+		if(_liveId != null){
+			this.Close();
 		}
 		_outbound = null;
-		_liveCliant = null;
 		_userConfig = null;
 	}
 
 	@Override
 	public void onOpen(Connection arg0) {
-		// TODO Auto-generated method stub
 		_outbound = arg0;
+	}
+	
+	//現在接続中の放送から受信登録を抹消する
+	private void Close(){
+		Connections connection = _connections.get(_liveId);
+		connection.cliants.remove(_outbound);
+		//全てのクライアントがいなくなればコメ鯖との通信を切断する
+		if(connection.cliants.isEmpty()){
+			String liveId = connection._live.getLiveNumber();
+			connection.close();
+			_connections.remove(liveId);
+		}
+		
 	}
 	
 	@Override
 	public void onMessage(String request) {
 		// lv番号かどうか調べる
 		String liveId=null;
+		String livePrefix = null;
+		
 		Pattern regex1 = Pattern.compile("((lv|co|ch)\\d+)");
   		Matcher m1 = regex1.matcher(request);
   		if(m1.find()){
   			liveId = m1.group(1);
+  			livePrefix = m1.group(2);
   		}
   		//lv番号でなければconfig設定を行う
   		if(liveId == null){
@@ -110,20 +94,36 @@ public class MyWebSocket implements WebSocket.OnTextMessage {
   			return;
   		}
   		
-		//既に接続中だったら切断する
-		if(_live != null){
-			_live.close();
-			_live = null;
-		}
-		//コメントサーバに接続する
+  		//既に接続中だったら切断する
+  		if(_liveId != null){
+  			this.Close();
+  		}
+ 
+  		//lv番号なら、既に接続中のクライアントを探す
+  		//co等なら一度、getplayerstatusしてlv番号を取得する
+  		Connections connection;
+  		if(livePrefix == "lv"){
+	  		_liveId = liveId;
+	  		
+	  		connection = _connections.get(liveId);
+	  		//既にコメ鯖に接続中なら、クライアントリストに追加する
+	  		if(connection != null){
+	  			System.out.println("接続中だよ！");
+	  			connection.addNewCliant(_outbound);
+	  			return;
+	  		}
+  		}
+  		System.out.println("接続してないよ！");
+  		
+		//新規でコメントサーバに接続する
+  		Connections connections = new Connections();
 		try {
-			_live = new NicoLive(liveId, mail, pass);
+			connections._live = new NicoLive(liveId, mail, pass);
 			//セッションが無効になっていたらもう一度
-			if(_live.getErrorType() == ErrorType.NotLogin){
-				_live = new NicoLive(liveId, mail, pass);
+			if(connections._live.getErrorType() == ErrorType.NotLogin){
+				connections._live = new NicoLive(liveId, mail, pass);
 			}
 		} catch (IOException e1) {
-			// TODO Auto-generated catch block
 			try {
 				_outbound.sendMessage("{\"info\":{\"error\":\"" + e1.getMessage() + "\"}}");
 			} catch (IOException e) {
@@ -141,52 +141,40 @@ public class MyWebSocket implements WebSocket.OnTextMessage {
 		try {
 			_outbound.sendMessage("{\"info\":" +
 					"{" +
-					"\"liveid\":\"" + _live.getLiveNumber() + "\"," +
-					"\"title\":\"" + _live.getTitle() + "\"," +
-					"\"isOfficial\":\"" + _live.getOfficial() + "\"" +
+					"\"liveid\":\"" + connections._live.getLiveNumber() + "\"," +
+					"\"title\":\"" + connections._live.getTitle() + "\"," +
+					"\"isOfficial\":\"" + connections._live.getOfficial() + "\"" +
 					"}}");
 		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
+			WebSocketChat.logger.warning(e.getMessage());
 		}
 
 		//コンソールに放送情報を表示
-		System.out.println("lv = " + _live.getLiveNumber());
-       System.out.println("title = " + _live.getTitle());
+		System.out.println("lv = " + connections._live.getLiveNumber());
+       System.out.println("title = " + connections._live.getTitle());
        //System.out.println("level = " + _live.getLevel());
-       System.out.println("total comment count = " + _live.getCommentCount());
-       System.out.println("total watch count = " + _live.getTotalWatchCount());
-       System.out.println("room label = " + _live.getRoomLabel());
-       System.out.println("co No = " + _live.getCommunityNumber());
-       System.out.println("seat No = " + _live.getSeetNo());
+       System.out.println("total comment count = " + connections._live.getCommentCount());
+       System.out.println("total watch count = " + connections._live.getTotalWatchCount());
+       System.out.println("room label = " + connections._live.getRoomLabel());
+       System.out.println("co No = " + connections._live.getCommunityNumber());
+       System.out.println("seat No = " + connections._live.getSeetNo());
+
+       this._liveId = connections._live.getLiveNumber();
        
-       //コメントを取得する処理を別スレッドで行う
-       Thread thread = new Thread() {
-	       @Override
-	       public void run() {
-	    	   _liveCliant = new NicoLiveCliant();
-	    	   _liveCliant.OnConnect();
-	       	}
-        };
-       thread.setDaemon(true);
-       thread.start();
-	}
-	
-	//コメントを取得するためのクラス
-	class NicoLiveCliant{
-		public void OnConnect(){
-			try {
-				_live.AnotherCommentServerConnect();
-				_live.addCommentHandler(new ReceiveHandler(_live, _userConfig));
-			}catch (IOException e){
-				System.out.println(e.toString());
-		    	WebSocketChat.logger.warning(e.getMessage());
-		    } catch (ClassNotFoundException e) {
-		    	WebSocketChat.logger.warning(e.getMessage());
-			} catch (SQLException e) {
-		    	WebSocketChat.logger.warning(e.getMessage());
-			}
-		}
+       //同時に接続されていたら、どちらかを切断する
+       //co番号を入力されたときはここで、lv番号のクライアントリストに追加する
+       if(_connections.containsKey(connections._live.getLiveNumber())){
+    	    connection = _connections.get(connections._live.getLiveNumber());
+    	    connections.close();
+    	    connection.addNewCliant(_outbound);
+    	    return;
+       }else{
+    	   _connections.put(connections._live.getLiveNumber(), connections);
+        }
+       
+       //コメントの取得を開始する
+       connections.cliants.add(_outbound);
+       connections.StartGetComment();
 	}
 	
 	//ユーザの設定情報を保持するだけのクラス
@@ -197,20 +185,72 @@ public class MyWebSocket implements WebSocket.OnTextMessage {
 		public boolean configBsp=true; //BSP等はアリーナのみ表示
 	}
 	
-
-	/*
-	public void onDisconnect() {
-		// TODO Auto-generated method stub
-		if(_live != null){
-			_live.close();
-			_live = null;
+	/**
+	 * 番組情報とそれに接続しているクライアントリストを保持するクラス
+	 *
+	 */
+	class Connections{
+		/** 同じ番組に接続しているクライアントリスト */
+		public Set<WebSocket.Connection> cliants = new CopyOnWriteArraySet<WebSocket.Connection>();
+		/** 放送の情報 */
+		public NicoLive _live;
+		/** コメ鯖との通信を受け取る */
+		public NicoLiveCliant _liveCliant;
+		
+		/** コメントを取得するためのクラス */
+		class NicoLiveCliant{
+			public void OnConnect(){
+				try {
+					_live.AnotherCommentServerConnect();
+					_live.addCommentHandler(new ReceiveHandler(_live, cliants));
+				}catch (IOException e){
+					System.out.println(e.toString());
+			    	WebSocketChat.logger.warning(e.getMessage());
+			    } catch (ClassNotFoundException e) {
+			    	WebSocketChat.logger.warning(e.getMessage());
+				} catch (SQLException e) {
+			    	WebSocketChat.logger.warning(e.getMessage());
+				}
+			}
 		}
-		_outbound = null;
-		_liveCliant = null;
-		_userConfig = null;
+		
+		/** コメントを取得する処理を別スレッドで行う */
+		public void StartGetComment(){
+	       Thread thread = new Thread() {
+		       @Override
+		       public void run() {
+		    	   _liveCliant = new NicoLiveCliant();
+		    	   _liveCliant.OnConnect();
+		       	}
+	        };
+	       thread.setDaemon(true);
+	       thread.start();
+		}
+		
+		/** コメントサーバと切断する */
+		public void close(){
+			this._live.close();
+    	    this._live = null;
+    	    this._liveCliant = null;
+    	    this.cliants = null;
+		}
+		
+		/** 接続中の放送に新しいクライアントを追加する	 */
+		public void addNewCliant(WebSocket.Connection outbound){
+			cliants.add(outbound);
+			//接続完了通知
+			try {
+				outbound.sendMessage("{\"info\":" +
+						"{" +
+						"\"liveid\":\"" + _live.getLiveNumber() + "\"," +
+						"\"title\":\"" + _live.getTitle() + "\"," +
+						"\"isOfficial\":\"" + _live.getOfficial() + "\"" +
+						"}}");
+			} catch (IOException e) {
+				WebSocketChat.logger.warning(e.getMessage());
+			}
+		}
 	}
-	*/
-
 
 
 	private void setConfig(String request){
@@ -231,12 +271,6 @@ public class MyWebSocket implements WebSocket.OnTextMessage {
 			this._userConfig.configBsp = setting[1].equals("1") ? true : false;
 		}
 	}
-	
-	/*public void onMessage(byte frame, byte[] data, int offset, int length) {
-		// TODO Auto-generated method stub
-		_live.close();
-	}
-	*/
 
 
 	/**
@@ -274,14 +308,14 @@ public class MyWebSocket implements WebSocket.OnTextMessage {
 	    /** ニコ生 */
 	    private NicoLive live = null;	   
 	    
-	    /** ユーザ設定 */
-	    private UserConfig userConfig = null;	   
-	    
 	    /** 前回の送出時のコメント **/
 	    private String prevMessage = "";
 	    
 	    /** 前回の送出時のユーザID **/
 	    private String prevUserID = "";
+	    
+	    /** クライアントリスト */
+	    private Set<WebSocket.Connection> cliants;
 	    
 	    /**
 	     * 指定した NicoLive オブジェクトでハンドラークラスを作成します。
@@ -289,9 +323,9 @@ public class MyWebSocket implements WebSocket.OnTextMessage {
 	     * @param live ニコ生
 	     * @param config ユーザ設定
 	     */
-	    public ReceiveHandler(final NicoLive live, UserConfig config) throws IOException {
+	    public ReceiveHandler(final NicoLive live, Set<WebSocket.Connection> cliants) throws IOException {
 	    	this.live = live;
-	    	this.userConfig = config;
+	    	this.cliants = cliants;
 	    }
 
 	    /**
@@ -366,25 +400,14 @@ public class MyWebSocket implements WebSocket.OnTextMessage {
 	    	}else{
 	    		prognessTime = String.format("%02d:%02d", vpos/60, vpos%60);
 	    	}
-	    	//アリーナ以外の運営コメント(3)・バックステージパス(6,7)・宣伝通知(2)を表示しない
-	    	if(this.userConfig.configBsp){
-	    		if(!RoomType.Arena.equals(roomType)){
-	    			if(type.equals(CommentHandler.Member.OWNER) ||
-	    					type.equals(CommentHandler.Member.BASKSTAGEPASS) ||
-	    					type.equals(CommentHandler.Member.SYSTEM) ||
-	    					type.equals(CommentHandler.Member.OFFICIAL)){
 
-		    			return;
-	    			}
-	    		}
-	    	}
-
-	    	//コマンドにhidden,NotTalkがあれば表示しない
+	    	/**コマンドにhidden,NotTalkがあれば表示しない
 	    	if(this.userConfig.configHidden){
 	    		if(command.contains("hidden") || command.contains("NotTalk")){
 	    			return;
 	    		}
 	    	}
+	    	*/
 
 	    	//バックステージパスはコメント部分だけ送信
 	    	if(type.equals(CommentHandler.Member.BASKSTAGEPASS) ||
@@ -410,41 +433,39 @@ public class MyWebSocket implements WebSocket.OnTextMessage {
 	    		}
 
 	    	}
-	    	
-	    	//運営コマンドは表示しない
-	    	if(this.userConfig.configHb && 
-	    			(type.equals(CommentHandler.Member.OWNER) ||
-	    			type.equals(CommentHandler.Member.BASKSTAGEPASS) ||
-	    			type.equals(CommentHandler.Member.SYSTEM) ||
-	    			type.equals(CommentHandler.Member.OFFICIAL)
-	    			)){
-	    		Pattern regex1 = Pattern.compile("^/[a-z0-9]+\\s+");
-	    		Matcher m1 = regex1.matcher(comment);
-	    		if(m1.find()){
-	    			return;
-	    		}
-	    	}
 
 	    	//htmlタグを排除する
+	    	/**
 	    	if(this.userConfig.configHtml){
 	    		Pattern regex1 = Pattern.compile("<(\"[^\"]*\"|'[^']*'|[^'\">])*>");
 	    		Matcher m1 = regex1.matcher(comment);
 	    		comment = m1.replaceAll("");
 	    	}
+	    	*/
 	    	
 	    	//エスケープ
 	    	comment = sanitizing(comment);
+	    	
+	    	//userのjson組み立て
+	    	String user;
+        	if(userName != null){
+        		user = "{\"user\":{\"userId\":\"" + userid + "\", \"name\":\"" + userName + "\"}}";
+        	}else{
+        		user = "{\"user\":{\"userId\":\"" + userid + "\", \"name\":\"" + "" + "\"}}";
+        	}
 
 	    	/* 出力形式にフォーマット(TODO:JSON形式で出力) */
 	    	//output = String.format("%s‌  ‌%s‌  ‌%s‌  ‌%s‌  ‌%s", room, number, output, userid, type);
 	    
 	    	//JSONフォーマットに整形
-	    	output = String.format("{\"room\":\"%s\",\"number\":\"%s\",\"comment\":\"%s\",\"userid\": %s,\"type\":\"%s\",\"vpos\":\"%s\"}", room, number, comment, userid, type, prognessTime);
+	    	output = String.format("{\"room\":\"%s\",\"number\":\"%s\",\"comment\":\"%s\",\"userid\": %s,\"type\":\"%s\",\"vpos\":\"%s\"}", room, number, comment, user, type, prognessTime);
 	    		    	
 	    	//クライアントに送信する
 	    	try
 	    	{
-	    		_outbound.sendMessage(output);
+	    		for(WebSocket.Connection connection : cliants){
+	    			connection.sendMessage(output);
+	    		}
 	    	}
 	    	catch(IOException e)
 	    	{
@@ -486,11 +507,6 @@ public class MyWebSocket implements WebSocket.OnTextMessage {
 	        //ユーザIDから名前を取得する
 	        if(!userid.equals("900000000") && !userid.equals("394")){
 	        	userName = sanitizing(live.getNameFromUserId(userid));
-	        	if(userName != null){
-	        		userName = "{\"user\":{\"userId\":\"" + userid + "\", \"name\":\"" + userName + "\"}}";
-	        	}else{
-	        		userName = "{\"user\":{\"userId\":\"" + userid + "\", \"name\":\"" + "" + "\"}}";
-	        	}
 	        }
 
 	        /* コメントの種類を取得。isOwner のコメント参照 */
@@ -501,11 +517,6 @@ public class MyWebSocket implements WebSocket.OnTextMessage {
 	        
 	        /* 公式運営コメントが誰なのかを取得 */
 	        String adminName = attrMap.get(CommentHandler.NAME);
-	        
-	        /* ユーザー ID を名前に差し替え */
-	        if (userName != null) {
-	            userid = userName;
-	        }
 
 	        /* 運営システムからのコメントはコマンドが飛んでこないので対策 */
 	        if (command == null) {
