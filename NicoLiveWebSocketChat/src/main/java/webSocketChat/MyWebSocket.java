@@ -91,7 +91,6 @@ public class MyWebSocket implements WebSocket.OnTextMessage {
 
 	@Override
 	public void onOpen(Connection arg0) {
-		System.out.println("test");
 		// TODO Auto-generated method stub
 		_outbound = arg0;
 	}
@@ -311,7 +310,10 @@ public class MyWebSocket implements WebSocket.OnTextMessage {
 	    	//コマンドで判定できなくなったので、
 	    	//コメント内容とユーザIDが前回と同じであれば送出しない
 	    	if (prevMessage.equals(comment)
-	    			 && prevUserID.equals(userid) )
+	    			 && prevUserID.equals(userid) && 
+	    			 (roomType != RoomType.Arena && 
+	    					 (type.equals(CommentHandler.Member.BASKSTAGEPASS) 
+	    							 || type.equals(CommentHandler.Member.OFFICIAL))))
 	    	{
 	    		return;
 	    	}
@@ -371,7 +373,8 @@ public class MyWebSocket implements WebSocket.OnTextMessage {
 	    					type.equals(CommentHandler.Member.BASKSTAGEPASS) ||
 	    					type.equals(CommentHandler.Member.SYSTEM) ||
 	    					type.equals(CommentHandler.Member.OFFICIAL)){
-	    				return;
+
+		    			return;
 	    			}
 	    		}
 	    	}
@@ -383,20 +386,6 @@ public class MyWebSocket implements WebSocket.OnTextMessage {
 	    		}
 	    	}
 
-	    	//運営コマンドは表示しない
-	    	if(this.userConfig.configHb && 
-	    			(type.equals(CommentHandler.Member.OWNER) ||
-	    			type.equals(CommentHandler.Member.BASKSTAGEPASS) ||
-	    			type.equals(CommentHandler.Member.SYSTEM) ||
-	    			type.equals(CommentHandler.Member.OFFICIAL)
-	    			)){
-	    		Pattern regex1 = Pattern.compile("^/[a-z0-9]+\\s+");
-	    		Matcher m1 = regex1.matcher(comment);
-	    		if(m1.find()){
-	    			return;
-	    		}
-	    	}
-
 	    	//バックステージパスはコメント部分だけ送信
 	    	if(type.equals(CommentHandler.Member.BASKSTAGEPASS) ||
 	    			type.equals(CommentHandler.Member.OFFICIAL)){
@@ -404,10 +393,9 @@ public class MyWebSocket implements WebSocket.OnTextMessage {
 	    		Matcher m1 = regex1.matcher(comment);
 	    		if(m1.find()){
 	    			comment = m1.group(1);
-	    			userid = m1.group(2);
 	    		}
 	    	}
-	    	
+
 	    	//広告情報を整形する
 	    	if(type.equals(CommentHandler.Member.OWNER)){
 	    		Pattern regex1 = Pattern.compile("/koukoku\\sshow2\\s.+【広告設定されました】(.+)（クリックしてもっと見る）");
@@ -421,6 +409,20 @@ public class MyWebSocket implements WebSocket.OnTextMessage {
 	    			comment = "【広告】" + m2.group(1);
 	    		}
 
+	    	}
+	    	
+	    	//運営コマンドは表示しない
+	    	if(this.userConfig.configHb && 
+	    			(type.equals(CommentHandler.Member.OWNER) ||
+	    			type.equals(CommentHandler.Member.BASKSTAGEPASS) ||
+	    			type.equals(CommentHandler.Member.SYSTEM) ||
+	    			type.equals(CommentHandler.Member.OFFICIAL)
+	    			)){
+	    		Pattern regex1 = Pattern.compile("^/[a-z0-9]+\\s+");
+	    		Matcher m1 = regex1.matcher(comment);
+	    		if(m1.find()){
+	    			return;
+	    		}
 	    	}
 
 	    	//htmlタグを排除する

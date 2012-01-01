@@ -225,7 +225,14 @@ function getLiveId(){
 
 //指定された文字列にURLが含まれていればリンクにして返します
 function getLinkString(str){
-	return str.replace(/(https?:\/\/[-_.!~*'()a-zA-Z0-9;\/?:\@&=+\$,%#]+)/, '<a href="$1" target="_blank">$1</a>');
+	var message = str.replace(/(https?:\/\/[-_.!~*'()a-zA-Z0-9;\/?:\@&=+\$,%#]+)/, '<a href="$1" target="_blank">$1</a>');
+	message = message.replace(/(sm[0-9]+)/, '<a href="http://www.nicovideo.jp/watch/$1" target="_blank">$1</a>');
+	message = message.replace(/(nm[0-9]+)/, '<a href="http://www.nicovideo.jp/watch/$1" target="_blank">$1</a>');
+	message = message.replace(/(co[0-9]+)/, '<a href="http://com.nicovideo.jp/community/$1" target="_blank">$1</a>');
+	message = message.replace(/(lv[0-9]+)/, '<a href="http://live.nicovideo.jp/watch/$1" target="_blank">$1</a>');
+	message = message.replace(/(im[0-9]+)/, '<a href="http://seiga.nicovideo.jp/seiga/$1" target="_blank">$1</a>');
+
+	return message;
 }
 
 //お知らせを表示する

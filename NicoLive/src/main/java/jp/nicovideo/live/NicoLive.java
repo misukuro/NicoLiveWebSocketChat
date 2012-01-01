@@ -9,6 +9,7 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.io.PrintStream;
 import java.io.PushbackInputStream;
 import java.io.StringReader;
@@ -18,6 +19,7 @@ import java.net.HttpCookie;
 import java.net.HttpURLConnection;
 import java.net.Socket;
 import java.net.URL;
+import java.net.URLConnection;
 import java.net.URLEncoder;
 
 import java.nio.channels.FileChannel;
@@ -1915,6 +1917,27 @@ public class NicoLive {
 			int status = http.getResponseCode();
 			if (status == HttpURLConnection.HTTP_MOVED_TEMP) {
 				System.out.println(http.getHeaderField("Location"));
+			}
+			// Content-typeがtext/htmlならR-18放送
+			if(http.getContentType().equals("text/html") && url.indexOf("api") != -1){
+				URL accept = new URL("http://live.nicovideo.jp/r18accept");
+				URLConnection uc = accept.openConnection();
+				uc.setDoOutput(true);
+				uc.setRequestProperty("Cookie",
+						cookie.getName() + "=" + cookie.getValue());
+				uc.setRequestProperty("User-Agent", "ニコ生コメントビューワ(仮) katoken@morimati.info");
+				OutputStream output = uc.getOutputStream();
+				String postStr = "next_url=http://live.nicovideo.jp/api/getplayerstatus/lv73571971&series_confirm_value=true";
+				PrintStream out = new PrintStream(output);
+				out.print(postStr);
+				out.close();
+				InputStream is = uc.getInputStream();
+				BufferedReader reader = new BufferedReader(new InputStreamReader(is));
+				String s;
+				while((s=reader.readLine()) != null){
+					System.out.println(s);
+				}
+				return httpGetContent(url);
 			}
 			return http.getInputStream();
 		} catch (IOException e) {
